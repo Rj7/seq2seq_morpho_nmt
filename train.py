@@ -1,21 +1,22 @@
-import unicodedata
-import string
-import re
-import random
-import time
 import math
+import random
+import re
+import time
+import unicodedata
 
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
-from torch import optim
 import torch.nn.functional as F
+from torch import optim
+from torch.autograd import Variable
 
 USE_CUDA = torch.cuda.is_available()
 
 SOS_token = 0
 EOS_token = 1
-
+MAX_LENGTH = 10
 
 class Lang:
 	def __init__(self, name):
@@ -46,6 +47,7 @@ def unicode_to_ascii(s):
 		if unicodedata.category(c) != 'Mn'
 	)
 
+
 # Lowercase, trim, and remove non-letter characters
 def normalize_string(s):
 	s = unicode_to_ascii(s.lower().strip())
@@ -75,18 +77,10 @@ def read_langs(lang1, lang2, reverse=False):
 	return input_lang, output_lang, pairs
 
 
-MAX_LENGTH = 10
-
-good_prefixes = (
-	"i am ", "i m ",
-	"he is", "he s ",
-	"she is", "she s",
-	"you are", "you re "
-)
-
 def filter_pair(p):
 	return len(p[0].split(' ')) < MAX_LENGTH and len(p[1].split(' ')) < MAX_LENGTH and \
-		   p[1].startswith(good_prefixes)
+		p[1].startswith(good_prefixes)
+
 
 def filter_pairs(pairs):
 	return [pair for pair in pairs if filter_pair(pair)]
@@ -107,15 +101,10 @@ def prepare_data(lang1_name, lang2_name, reverse=False):
 	return input_lang, output_lang, pairs
 
 
-input_lang, output_lang, pairs = prepare_data('eng', 'fra', True)
-
-# Print an example pair
-print(random.choice(pairs))
-
-
 # Return a list of indexes, one for each word in the sentence
 def indexes_from_sentence(lang, sentence):
 	return [lang.word2index[word] for word in sentence.split(' ')]
+
 
 def variable_from_sentence(lang, sentence):
 	indexes = indexes_from_sentence(lang, sentence)
@@ -125,10 +114,115 @@ def variable_from_sentence(lang, sentence):
 	if USE_CUDA: var = var.cuda()
 	return var
 
+
 def variables_from_pair(pair):
 	input_variable = variable_from_sentence(input_lang, pair[0])
 	target_variable = variable_from_sentence(output_lang, pair[1])
 	return (input_variable, target_variable)
+
+
+def as_minutes(s):
+	m = math.floor(s / 60)
+	s -= m * 60
+	return '%dm %ds' % (m, s)
+
+
+def time_since(since, percent):
+	now = time.time()
+	s = now - since
+	es = s / (percent)
+	rs = es - s
+	return '%s (- %s)' % (as_minutes(s), as_minutes(rs))
+
+
+def show_plot(points):
+	plt.figure()
+	fig, ax = plt.subplots()
+	loc = ticker.MultipleLocator(base=0.2) # put ticks at regular intervals
+	ax.yaxis.set_major_locator(loc)
+	plt.plot(points)
+	plt.savefig('losses')
+
+
+def evaluate(sentence, max_length=MAX_LENGTH):
+	input_variable = variable_from_sentence(input_lang, sentence)
+	input_length = input_variable.size()[0]
+
+	# Run through encoder
+	encoder_hidden = encoder.init_hidden()
+	encoder_outputs, encoder_hidden = encoder(input_variable, encoder_hidden)
+
+	# Create starting vectors for decoder
+	decoder_input = Variable(torch.LongTensor([[SOS_token]]))  # SOS
+	decoder_context = Variable(torch.zeros(1, decoder.hidden_size))
+	if USE_CUDA:
+		decoder_input = decoder_input.cuda()
+		decoder_context = decoder_context.cuda()
+
+	decoder_hidden = encoder_hidden
+
+	decoded_words = []
+	decoder_attentions = torch.zeros(max_length, max_length)
+
+	# Run through decoder
+	for di in range(max_length):
+		decoder_output, decoder_context, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_context,
+																					 decoder_hidden, encoder_outputs)
+		decoder_attentions[di, :decoder_attention.size(2)] += decoder_attention.squeeze(0).squeeze(0).cpu().data
+
+		# Choose top word from output
+		topv, topi = decoder_output.data.topk(1)
+		ni = topi[0][0]
+		if ni == EOS_token:
+			decoded_words.append('<EOS>')
+			break
+		else:
+			decoded_words.append(output_lang.index2word[ni])
+
+		# Next input is chosen word
+		decoder_input = Variable(torch.LongTensor([[ni]]))
+		if USE_CUDA: decoder_input = decoder_input.cuda()
+
+	return decoded_words, decoder_attentions[:di + 1, :len(encoder_outputs)]
+
+
+def evaluate_randomly():
+	pair = random.choice(pairs)
+
+	output_words, decoder_attn = evaluate(pair[0])
+	output_sentence = ' '.join(output_words)
+
+	print('>', pair[0])
+	print('=', pair[1])
+	print('<', output_sentence)
+	print('')
+
+
+def show_attention(input_sentence, output_words, attentions):
+	# Set up figure with colorbar
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	cax = ax.matshow(attentions.numpy(), cmap='bone')
+	fig.colorbar(cax)
+
+	# Set up axes
+	ax.set_xticklabels([''] + input_sentence.split(' ') + ['<EOS>'], rotation=90)
+	ax.set_yticklabels([''] + output_words)
+
+	# Show label at every tick
+	ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+	ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+	# plt.show()
+	plt.savefig(input_sentence)
+	plt.close()
+
+
+def evaluate_and_show_attention(input_sentence):
+	output_words, attentions = evaluate(input_sentence)
+	print('input =', input_sentence)
+	print('output =', ' '.join(output_words))
+	show_attention(input_sentence, output_words, attentions)
 
 
 class EncoderRNN(nn.Module):
@@ -243,38 +337,6 @@ class AttnDecoderRNN(nn.Module):
 		return output, context, hidden, attn_weights
 
 
-# encoder_test = EncoderRNN(10, 10, 2)
-# decoder_test = AttnDecoderRNN('general', 10, 10, 2)
-# print(encoder_test)
-# print(decoder_test)
-#
-# encoder_hidden = encoder_test.init_hidden()
-# word_input = Variable(torch.LongTensor([1, 2, 3]))
-# if USE_CUDA:
-# 	encoder_test.cuda()
-# 	word_input = word_input.cuda()
-# encoder_outputs, encoder_hidden = encoder_test(word_input, encoder_hidden)
-#
-# word_inputs = Variable(torch.LongTensor([1, 2, 3]))
-# decoder_attns = torch.zeros(1, 3, 3)
-# decoder_hidden = encoder_hidden
-# decoder_context = Variable(torch.zeros(1, decoder_test.hidden_size))
-#
-# if USE_CUDA:
-# 	decoder_test.cuda()
-# 	word_inputs = word_inputs.cuda()
-# 	decoder_context = decoder_context.cuda()
-#
-# for i in range(3):
-# 	decoder_output, decoder_context, decoder_hidden, decoder_attn = decoder_test(word_inputs[i], decoder_context, decoder_hidden, encoder_outputs)
-# 	print(decoder_output.size(), decoder_hidden.size(), decoder_attn.size())
-# 	decoder_attns[0, i] = decoder_attn.squeeze(0).cpu().data
-
-
-teacher_forcing_ratio = 0.5
-clip = 5.0
-
-
 def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion,
 		  max_length=MAX_LENGTH):
 	# Zero gradients of both optimizers
@@ -338,180 +400,81 @@ def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, 
 	return loss.data[0] / target_length
 
 
-def as_minutes(s):
-	m = math.floor(s / 60)
-	s -= m * 60
-	return '%dm %ds' % (m, s)
-
-def time_since(since, percent):
-	now = time.time()
-	s = now - since
-	es = s / (percent)
-	rs = es - s
-	return '%s (- %s)' % (as_minutes(s), as_minutes(rs))
-
-
-attn_model = 'general'
-hidden_size = 500
-n_layers = 2
-dropout_p = 0.05
-
-# Initialize models
-encoder = EncoderRNN(input_lang.n_words, hidden_size, n_layers)
-decoder = AttnDecoderRNN(attn_model, hidden_size, output_lang.n_words, n_layers, dropout_p=dropout_p)
-
-# Move models to GPU
-if USE_CUDA:
-	encoder.cuda()
-	decoder.cuda()
-
-# Initialize optimizers and criterion
-learning_rate = 0.0001
-encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
-decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
-criterion = nn.NLLLoss()
-
-
 # Configuring training
 n_epochs = 50000
 plot_every = 200
 print_every = 1000
+teacher_forcing_ratio = 0.5
+clip = 5.0
+attn_model = 'general'
+hidden_size = 500
+n_layers = 2
+dropout_p = 0.05
+learning_rate = 0.0001
 
 # Keep track of time elapsed and running averages
 start = time.time()
 plot_losses = []
-print_loss_total = 0 # Reset every print_every
-plot_loss_total = 0 # Reset every plot_every
+print_loss_total = 0  # Reset every print_every
+plot_loss_total = 0  # Reset every plot_every
 
-for epoch in range(1, n_epochs + 1):
+if __name__ == "__main__":
+	print ("print starting program")
+	good_prefixes = (
+		"i am ", "i m ",
+		"he is", "he s ",
+		"she is", "she s",
+		"you are", "you re "
+	)
+	input_lang, output_lang, pairs = prepare_data('eng', 'fra', True)
+	print(random.choice(pairs))
 
-	# Get training data for this cycle
-	training_pair = variables_from_pair(random.choice(pairs))
-	input_variable = training_pair[0]
-	target_variable = training_pair[1]
+	# Initialize models
+	encoder = EncoderRNN(input_lang.n_words, hidden_size, n_layers)
+	decoder = AttnDecoderRNN(attn_model, hidden_size, output_lang.n_words, n_layers, dropout_p=dropout_p)
 
-	# Run the train function
-	loss = train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
-
-	# Keep track of loss
-	print_loss_total += loss
-	plot_loss_total += loss
-
-	if epoch == 0: continue
-
-	if epoch % print_every == 0:
-		print_loss_avg = print_loss_total / print_every
-		print_loss_total = 0
-		print_summary = '%s (%d %d%%) %.4f' % (
-			time_since(start, epoch / n_epochs), epoch, epoch / n_epochs * 100, print_loss_avg)
-		print(print_summary)
-
-	if epoch % plot_every == 0:
-		plot_loss_avg = plot_loss_total / plot_every
-		plot_losses.append(plot_loss_avg)
-		plot_loss_total = 0
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import numpy as np
-
-def show_plot(points):
-	plt.figure()
-	fig, ax = plt.subplots()
-	loc = ticker.MultipleLocator(base=0.2) # put ticks at regular intervals
-	ax.yaxis.set_major_locator(loc)
-	plt.plot(points)
-	plt.savefig('losses')
-
-show_plot(plot_losses)
-
-
-def evaluate(sentence, max_length=MAX_LENGTH):
-	input_variable = variable_from_sentence(input_lang, sentence)
-	input_length = input_variable.size()[0]
-
-	# Run through encoder
-	encoder_hidden = encoder.init_hidden()
-	encoder_outputs, encoder_hidden = encoder(input_variable, encoder_hidden)
-
-	# Create starting vectors for decoder
-	decoder_input = Variable(torch.LongTensor([[SOS_token]]))  # SOS
-	decoder_context = Variable(torch.zeros(1, decoder.hidden_size))
+	# Move models to GPU
 	if USE_CUDA:
-		decoder_input = decoder_input.cuda()
-		decoder_context = decoder_context.cuda()
+		encoder.cuda()
+		decoder.cuda()
 
-	decoder_hidden = encoder_hidden
+	# Initialize optimizers and criterion
+	encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
+	decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
+	criterion = nn.NLLLoss()
 
-	decoded_words = []
-	decoder_attentions = torch.zeros(max_length, max_length)
+	for epoch in range(1, n_epochs + 1):
 
-	# Run through decoder
-	for di in range(max_length):
-		decoder_output, decoder_context, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_context,
-																					 decoder_hidden, encoder_outputs)
-		decoder_attentions[di, :decoder_attention.size(2)] += decoder_attention.squeeze(0).squeeze(0).cpu().data
+		# Get training data for this cycle
+		training_pair = variables_from_pair(random.choice(pairs))
+		input_variable = training_pair[0]
+		target_variable = training_pair[1]
 
-		# Choose top word from output
-		topv, topi = decoder_output.data.topk(1)
-		ni = topi[0][0]
-		if ni == EOS_token:
-			decoded_words.append('<EOS>')
-			break
-		else:
-			decoded_words.append(output_lang.index2word[ni])
+		# Run the train function
+		loss = train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
 
-		# Next input is chosen word
-		decoder_input = Variable(torch.LongTensor([[ni]]))
-		if USE_CUDA: decoder_input = decoder_input.cuda()
+		# Keep track of loss
+		print_loss_total += loss
+		plot_loss_total += loss
 
-	return decoded_words, decoder_attentions[:di + 1, :len(encoder_outputs)]
+		if epoch == 0: continue
 
+		if epoch % print_every == 0:
+			print_loss_avg = print_loss_total / print_every
+			print_loss_total = 0
+			print_summary = '%s (%d %d%%) %.4f' % (
+				time_since(start, epoch / n_epochs), epoch, epoch / n_epochs * 100, print_loss_avg)
+			print(print_summary)
 
-def evaluate_randomly():
-	pair = random.choice(pairs)
+		if epoch % plot_every == 0:
+			plot_loss_avg = plot_loss_total / plot_every
+			plot_losses.append(plot_loss_avg)
+			plot_loss_total = 0
 
-	output_words, decoder_attn = evaluate(pair[0])
-	output_sentence = ' '.join(output_words)
+	show_plot(plot_losses)
+	evaluate_randomly()
 
-	print('>', pair[0])
-	print('=', pair[1])
-	print('<', output_sentence)
-	print('')
-
-evaluate_randomly()
-
-# output_words, attentions = evaluate("je suis trop froid .")
-# plt.matshow(attentions.numpy())
-
-
-def show_attention(input_sentence, output_words, attentions):
-	# Set up figure with colorbar
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	cax = ax.matshow(attentions.numpy(), cmap='bone')
-	fig.colorbar(cax)
-
-	# Set up axes
-	ax.set_xticklabels([''] + input_sentence.split(' ') + ['<EOS>'], rotation=90)
-	ax.set_yticklabels([''] + output_words)
-
-	# Show label at every tick
-	ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-	ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-	# plt.show()
-	plt.savefig(input_sentence)
-	plt.close()
-
-def evaluate_and_show_attention(input_sentence):
-	output_words, attentions = evaluate(input_sentence)
-	print('input =', input_sentence)
-	print('output =', ' '.join(output_words))
-	show_attention(input_sentence, output_words, attentions)
-
-
-evaluate_and_show_attention("elle a cinq ans de moins que moi .")
-evaluate_and_show_attention("elle est trop petit .")
-evaluate_and_show_attention("je ne crains pas de mourir .")
-evaluate_and_show_attention("c est un jeune directeur plein de talent .")
+	evaluate_and_show_attention("elle a cinq ans de moins que moi .")
+	evaluate_and_show_attention("elle est trop petit .")
+	evaluate_and_show_attention("je ne crains pas de mourir .")
+	evaluate_and_show_attention("c est un jeune directeur plein de talent .")
