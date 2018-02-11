@@ -18,7 +18,7 @@ USE_CUDA = torch.cuda.is_available()
 
 SOS_token = 0
 EOS_token = 1
-MAX_LENGTH = 10
+MAX_LENGTH = 50
 
 class Lang:
 	def __init__(self, name):
@@ -80,8 +80,7 @@ def read_langs(lang1, lang2, reverse=False):
 
 
 def filter_pair(p):
-	return len(p[0].split(' ')) < MAX_LENGTH and len(p[1].split(' ')) < MAX_LENGTH and \
-		p[1].startswith(good_prefixes)
+	return len(p[0].split(' ')) < MAX_LENGTH and len(p[1].split(' ')) < MAX_LENGTH
 
 
 def filter_pairs(pairs):
@@ -422,13 +421,7 @@ plot_loss_total = 0  # Reset every plot_every
 
 if __name__ == "__main__":
 	print ("print starting program")
-	good_prefixes = (
-		"i am ", "i m ",
-		"he is", "he s ",
-		"she is", "she s",
-		"you are", "you re "
-	)
-	input_lang, output_lang, pairs = prepare_data('eng', 'fra', True)
+	input_lang, output_lang, pairs = prepare_data('de', 'en', True)
 	print(random.choice(pairs))
 
 	# Initialize models
