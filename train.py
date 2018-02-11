@@ -377,18 +377,6 @@ n_epochs = 50000
 plot_every = 200
 print_every = 1000
 
-import sconce
-job = sconce.Job('seq2seq-translate', {
-	'attn_model': attn_model,
-	'n_layers': n_layers,
-	'dropout_p': dropout_p,
-	'hidden_size': hidden_size,
-	'learning_rate': learning_rate,
-	'teacher_forcing_ratio': teacher_forcing_ratio,
-})
-job.plot_every = plot_every
-job.log_every = print_every
-
 # Keep track of time elapsed and running averages
 start = time.time()
 plot_losses = []
@@ -408,7 +396,6 @@ for epoch in range(1, n_epochs + 1):
 	# Keep track of loss
 	print_loss_total += loss
 	plot_loss_total += loss
-	job.record(epoch, loss)
 
 	if epoch == 0: continue
 
