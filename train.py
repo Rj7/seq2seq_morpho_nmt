@@ -196,10 +196,9 @@ def evaluate_randomly():
 	output_words, decoder_attn = evaluate(pair[0])
 	output_sentence = ' '.join(output_words)
 
-	logging.info('>', pair[0])
-	logging.info('=', pair[1])
-	logging.info('<', output_sentence)
-	logging.info('')
+	logging.info('>{}'.format(pair[0]))
+	logging.info('={}'.format(pair[1]))
+	logging.info('<{}'.format(output_sentence))
 
 
 def show_attention(input_sentence, output_words, attentions):
@@ -224,8 +223,8 @@ def show_attention(input_sentence, output_words, attentions):
 
 def evaluate_and_show_attention(input_sentence):
 	output_words, attentions = evaluate(input_sentence)
-	logging.info('input =', input_sentence)
-	logging.info('output =', ' '.join(output_words))
+	logging.info('input = {}'.format(input_sentence))
+	logging.info('output = {}'.format_map(' '.join(output_words)))
 	show_attention(input_sentence, output_words, attentions)
 
 
