@@ -5,6 +5,7 @@ import random
 import re
 import time
 import unicodedata
+import logging
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -14,6 +15,8 @@ import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
 
+
+FORMAT = '%(asctime)-15s %(message)s'
 USE_CUDA = torch.cuda.is_available()
 
 SOS_token = 0
@@ -89,12 +92,12 @@ def filter_pairs(pairs):
 
 def prepare_data(lang1_name, lang2_name, reverse=False):
 	input_lang, output_lang, pairs = read_langs(lang1_name, lang2_name, reverse)
-	print("Read %s sentence pairs" % len(pairs))
+	logging.info("Read %s sentence pairs" % len(pairs))
 
 	pairs = filter_pairs(pairs)
-	print("Trimmed to %s sentence pairs" % len(pairs))
+	logging.info("Trimmed to %s sentence pairs" % len(pairs))
 
-	print("Indexing words...")
+	logging.info("Indexing words...")
 	for pair in pairs:
 		input_lang.index_words(pair[0])
 		output_lang.index_words(pair[1])
@@ -193,10 +196,10 @@ def evaluate_randomly():
 	output_words, decoder_attn = evaluate(pair[0])
 	output_sentence = ' '.join(output_words)
 
-	print('>', pair[0])
-	print('=', pair[1])
-	print('<', output_sentence)
-	print('')
+	logging.info('>', pair[0])
+	logging.info('=', pair[1])
+	logging.info('<', output_sentence)
+	logging.info('')
 
 
 def show_attention(input_sentence, output_words, attentions):
@@ -221,8 +224,8 @@ def show_attention(input_sentence, output_words, attentions):
 
 def evaluate_and_show_attention(input_sentence):
 	output_words, attentions = evaluate(input_sentence)
-	print('input =', input_sentence)
-	print('output =', ' '.join(output_words))
+	logging.info('input =', input_sentence)
+	logging.info('output =', ' '.join(output_words))
 	show_attention(input_sentence, output_words, attentions)
 
 
@@ -418,11 +421,15 @@ start = time.time()
 plot_losses = []
 print_loss_total = 0  # Reset every print_every
 plot_loss_total = 0  # Reset every plot_every
+source = 'de'
+target = 'en'
+logging.basicConfig(format=FORMAT, level=logging.INFO, filename="{}-{}.log".format(source, target))
+
 
 if __name__ == "__main__":
-	print ("print starting program")
-	input_lang, output_lang, pairs = prepare_data('de', 'en', True)
-	print(random.choice(pairs))
+	logging.info("Starting Program")
+	input_lang, output_lang, pairs = prepare_data(source,target , True)
+	logging.info(random.choice(pairs))
 
 	# Initialize models
 	encoder = EncoderRNN(input_lang.n_words, hidden_size, n_layers)
@@ -459,7 +466,7 @@ if __name__ == "__main__":
 			print_loss_total = 0
 			print_summary = '%s (%d %d%%) %.4f' % (
 				time_since(start, epoch / n_epochs), epoch, epoch / n_epochs * 100, print_loss_avg)
-			print(print_summary)
+			logging.info(print_summary)
 
 		if epoch % plot_every == 0:
 			plot_loss_avg = plot_loss_total / plot_every
