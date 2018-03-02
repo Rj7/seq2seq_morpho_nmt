@@ -14,115 +14,120 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.autograd import Variable
-
+import torchtext
+from torchtext import data
+from torchtext import datasets
+import spacy
+import re
+from nltk.tokenize.moses import MosesTokenizer
 
 FORMAT = '%(asctime)-15s %(message)s'
-USE_CUDA = torch.cuda.is_available()
+USE_CUDA = True
 
 SOS_token = 0
 EOS_token = 1
 MAX_LENGTH = 50
 
-class Lang:
-	def __init__(self, name):
-		self.name = name
-		self.word2index = {}
-		self.word2count = {}
-		self.index2word = {0: "SOS", 1: "EOS"}
-		self.n_words = 2  # Count SOS and EOS
-
-	def index_words(self, sentence):
-		for word in sentence.split(' '):
-			self.index_word(word)
-
-	def index_word(self, word):
-		if word not in self.word2index:
-			self.word2index[word] = self.n_words
-			self.word2count[word] = 1
-			self.index2word[self.n_words] = word
-			self.n_words += 1
-		else:
-			self.word2count[word] += 1
+# class Lang:
+	# def __init__(self, name):
+	# 	self.name = name
+	# 	self.word2index = {}
+	# 	self.word2count = {}
+	# 	self.index2word = {0: "SOS", 1: "EOS"}
+	# 	self.n_words = 2  # Count SOS and EOS
+	#
+	# def index_words(self, sentence):
+	# 	for word in sentence.split(' '):
+	# 		self.index_word(word)
+	#
+	# def index_word(self, word):
+	# 	if word not in self.word2index:
+	# 		self.word2index[word] = self.n_words
+	# 		self.word2count[word] = 1
+	# 		self.index2word[self.n_words] = word
+	# 		self.n_words += 1
+	# 	else:
+	# 		self.word2count[word] += 1
 
 
 # Turn a Unicode string to plain ASCII, thanks to http://stackoverflow.com/a/518232/2809427
-def unicode_to_ascii(s):
-	return ''.join(
-		c for c in unicodedata.normalize('NFD', s)
-		if unicodedata.category(c) != 'Mn'
-	)
+# def unicode_to_ascii(s):
+# 	return ''.join(
+# 		c for c in unicodedata.normalize('NFD', s)
+# 		if unicodedata.category(c) != 'Mn'
+# 	)
 
 
-# Lowercase, trim, and remove non-letter characters
-def normalize_string(s):
-	s = unicode_to_ascii(s.lower().strip())
-	s = re.sub(r"([.!?])", r" \1", s)
-	s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-	return s
+# # Lowercase, trim, and remove non-letter characters
+# def normalize_string(s):
+# 	s = unicode_to_ascii(s.lower().strip())
+# 	s = re.sub(r"([.!?])", r" \1", s)
+# 	s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+# 	return s
 
 
-def read_langs(lang1, lang2, reverse=False):
-	print("Reading lines...")
-
-	# Read the file and split into lines
-	lines = open('data/%s-%s.txt' % (lang1, lang2)).read().strip().split('\n')
-
-	# Split every line into pairs and normalize
-	pairs = [[normalize_string(s) for s in l.split('\t')] for l in lines]
-
-	# Reverse pairs, make Lang instances
-	if reverse:
-		pairs = [list(reversed(p)) for p in pairs]
-		input_lang = Lang(lang2)
-		output_lang = Lang(lang1)
-	else:
-		input_lang = Lang(lang1)
-		output_lang = Lang(lang2)
-
-	return input_lang, output_lang, pairs
-
-
-def filter_pair(p):
-	return len(p[0].split(' ')) < MAX_LENGTH and len(p[1].split(' ')) < MAX_LENGTH
+# def read_langs(lang1, lang2, reverse=False):
+# 	print("Reading lines...")
+#
+# 	# Read the file and split into lines
+# 	lines = open('data/%s-%s.txt' % (lang1, lang2)).read().strip().split('\n')
+#
+# 	# Split every line into pairs and normalize
+# 	pairs = [[normalize_string(s) for s in l.split('\t')] for l in lines]
+#
+# 	# Reverse pairs, make Lang instances
+# 	if reverse:
+# 		pairs = [list(reversed(p)) for p in pairs]
+# 		input_lang = Lang(lang2)
+# 		output_lang = Lang(lang1)
+# 	else:
+# 		input_lang = Lang(lang1)
+# 		output_lang = Lang(lang2)
+#
+# 	return input_lang, output_lang, pairs
 
 
-def filter_pairs(pairs):
-	return [pair for pair in pairs if filter_pair(pair)]
+# def filter_pair(p):
+# 	return len(p[0].split(' ')) < MAX_LENGTH and len(p[1].split(' ')) < MAX_LENGTH
 
 
-def prepare_data(lang1_name, lang2_name, reverse=False):
-	input_lang, output_lang, pairs = read_langs(lang1_name, lang2_name, reverse)
-	logging.info("Read %s sentence pairs" % len(pairs))
+# def filter_pairs(pairs):
+# 	return [pair for pair in pairs if filter_pair(pair)]
 
-	pairs = filter_pairs(pairs)
-	logging.info("Trimmed to %s sentence pairs" % len(pairs))
 
-	logging.info("Indexing words...")
-	for pair in pairs:
-		input_lang.index_words(pair[0])
-		output_lang.index_words(pair[1])
-
-	return input_lang, output_lang, pairs
+# def prepare_data(lang1_name, lang2_name, reverse=False):
+# 	input_lang, output_lang, pairs = read_langs(lang1_name, lang2_name, reverse)
+# 	logging.info("Read %s sentence pairs" % len(pairs))
+#
+# 	pairs = filter_pairs(pairs)
+# 	logging.info("Trimmed to %s sentence pairs" % len(pairs))
+#
+# 	logging.info("Indexing words...")
+# 	for pair in pairs:
+# 		input_lang.index_words(pair[0])
+# 		output_lang.index_words(pair[1])
+#
+# 	return input_lang, output_lang, pairs
 
 
 # Return a list of indexes, one for each word in the sentence
-def indexes_from_sentence(lang, sentence):
-	return [lang.word2index[word] for word in sentence.split(' ')]
+# def indexes_from_sentence(lang, sentence):
+# 	return [lang.word2index[word] for word in sentence.split(' ')]
 
 
-def variable_from_sentence(lang, sentence):
-	indexes = indexes_from_sentence(lang, sentence)
-	indexes.append(EOS_token)
-	var = Variable(torch.LongTensor(indexes).view(-1, 1))
-	#     print('var =', var)
-	if USE_CUDA: var = var.cuda()
-	return var
+# def variable_from_sentence(lang, sentence):
+# 	indexes = indexes_from_sentence(lang, sentence)
+# 	indexes.append(EOS_token)
+# 	var = Variable(torch.LongTensor(indexes).view(-1, 1))
+# 	#     print('var =', var)
+# 	if USE_CUDA: var = var.cuda()
+# 	return var
 
 
-def variables_from_pair(pair):
-	input_variable = variable_from_sentence(input_lang, pair[0])
-	target_variable = variable_from_sentence(output_lang, pair[1])
-	return (input_variable, target_variable)
+# def variables_from_pair(pair):
+# 	input_variable = variable_from_sentence(input_lang, pair[0])
+# 	target_variable = variable_from_sentence(output_lang, pair[1])
+# 	return (input_variable, target_variable)
 
 
 def as_minutes(s):
@@ -148,57 +153,57 @@ def show_plot(points):
 	plt.savefig('losses')
 
 
-def evaluate(sentence, max_length=MAX_LENGTH):
-	input_variable = variable_from_sentence(input_lang, sentence)
-	input_length = input_variable.size()[0]
+# def evaluate(sentence, max_length=MAX_LENGTH):
+# 	input_variable = variable_from_sentence(input_lang, sentence)
+# 	input_length = input_variable.size()[0]
+#
+# 	# Run through encoder
+# 	encoder_hidden = encoder.init_hidden()
+# 	encoder_outputs, encoder_hidden = encoder(input_variable, encoder_hidden)
+#
+# 	# Create starting vectors for decoder
+# 	decoder_input = Variable(torch.LongTensor([[SOS_token]]))  # SOS
+# 	decoder_context = Variable(torch.zeros(1, decoder.hidden_size))
+# 	if USE_CUDA:
+# 		decoder_input = decoder_input.cuda()
+# 		decoder_context = decoder_context.cuda()
+#
+# 	decoder_hidden = encoder_hidden
+#
+# 	decoded_words = []
+# 	decoder_attentions = torch.zeros(max_length, max_length)
+#
+# 	# Run through decoder
+# 	for di in range(max_length):
+# 		decoder_output, decoder_context, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_context,
+# 																					 decoder_hidden, encoder_outputs)
+# 		decoder_attentions[di, :decoder_attention.size(2)] += decoder_attention.squeeze(0).squeeze(0).cpu().data
+#
+# 		# Choose top word from output
+# 		topv, topi = decoder_output.data.topk(1)
+# 		ni = topi[0][0]
+# 		if ni == EOS_token:
+# 			decoded_words.append('<EOS>')
+# 			break
+# 		else:
+# 			decoded_words.append(output_lang.index2word[ni])
+#
+# 		# Next input is chosen word
+# 		decoder_input = Variable(torch.LongTensor([[ni]]))
+# 		if USE_CUDA: decoder_input = decoder_input.cuda()
+#
+# 	return decoded_words, decoder_attentions[:di + 1, :len(encoder_outputs)]
 
-	# Run through encoder
-	encoder_hidden = encoder.init_hidden()
-	encoder_outputs, encoder_hidden = encoder(input_variable, encoder_hidden)
 
-	# Create starting vectors for decoder
-	decoder_input = Variable(torch.LongTensor([[SOS_token]]))  # SOS
-	decoder_context = Variable(torch.zeros(1, decoder.hidden_size))
-	if USE_CUDA:
-		decoder_input = decoder_input.cuda()
-		decoder_context = decoder_context.cuda()
-
-	decoder_hidden = encoder_hidden
-
-	decoded_words = []
-	decoder_attentions = torch.zeros(max_length, max_length)
-
-	# Run through decoder
-	for di in range(max_length):
-		decoder_output, decoder_context, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_context,
-																					 decoder_hidden, encoder_outputs)
-		decoder_attentions[di, :decoder_attention.size(2)] += decoder_attention.squeeze(0).squeeze(0).cpu().data
-
-		# Choose top word from output
-		topv, topi = decoder_output.data.topk(1)
-		ni = topi[0][0]
-		if ni == EOS_token:
-			decoded_words.append('<EOS>')
-			break
-		else:
-			decoded_words.append(output_lang.index2word[ni])
-
-		# Next input is chosen word
-		decoder_input = Variable(torch.LongTensor([[ni]]))
-		if USE_CUDA: decoder_input = decoder_input.cuda()
-
-	return decoded_words, decoder_attentions[:di + 1, :len(encoder_outputs)]
-
-
-def evaluate_randomly():
-	pair = random.choice(pairs)
-
-	output_words, decoder_attn = evaluate(pair[0])
-	output_sentence = ' '.join(output_words)
-
-	logging.info('>{}'.format(pair[0]))
-	logging.info('={}'.format(pair[1]))
-	logging.info('<{}'.format(output_sentence))
+# def evaluate_randomly():
+# 	pair = random.choice(pairs)
+#
+# 	output_words, decoder_attn = evaluate(pair[0])
+# 	output_sentence = ' '.join(output_words)
+#
+# 	logging.info('>{}'.format(pair[0]))
+# 	logging.info('={}'.format(pair[1]))
+# 	logging.info('<{}'.format(output_sentence))
 
 
 def show_attention(input_sentence, output_words, attentions):
@@ -221,35 +226,38 @@ def show_attention(input_sentence, output_words, attentions):
 	plt.close()
 
 
-def evaluate_and_show_attention(input_sentence):
-	output_words, attentions = evaluate(input_sentence)
-	logging.info('input = {}'.format(input_sentence))
-	logging.info('output = {}'.format_map(' '.join(output_words)))
-	show_attention(input_sentence, output_words, attentions)
+# def evaluate_and_show_attention(input_sentence):
+# 	output_words, attentions = evaluate(input_sentence)
+# 	logging.info('input = {}'.format(input_sentence))
+# 	logging.info('output = {}'.format_map(' '.join(output_words)))
+# 	show_attention(input_sentence, output_words, attentions)
 
 
 class EncoderRNN(nn.Module):
-	def __init__(self, input_size, hidden_size, n_layers=1):
+	def __init__(self, input_size, hidden_size,embedding_size, n_layers=1):
 		super(EncoderRNN, self).__init__()
 
 		self.input_size = input_size
 		self.hidden_size = hidden_size
+		self.embedding_size = embedding_size
 		self.n_layers = n_layers
 
-		self.embedding = nn.Embedding(input_size, hidden_size)
+		self.embedding = nn.Embedding(input_size, hidden_size, padding_idx=1)
 		self.gru = nn.GRU(hidden_size, hidden_size, n_layers)
 
 	def forward(self, word_inputs, hidden):
 		# Note: we run this all at once (over the whole input sequence)
-		seq_len = len(word_inputs)
-		embedded = self.embedding(word_inputs).view(seq_len, 1, -1)
+		# word_inputs = torch.t(word_inputs)
+		embedded = self.embedding(word_inputs)
 		output, hidden = self.gru(embedded, hidden)
 		return output, hidden
 
-	def init_hidden(self):
-		hidden = Variable(torch.zeros(self.n_layers, 1, self.hidden_size))
+	def init_hidden(self, batch_size):
+		hidden = Variable(torch.zeros(self.n_layers, batch_size, self.hidden_size))
 		if USE_CUDA: hidden = hidden.cuda()
 		return hidden
+
+
 
 
 class Attn(nn.Module):
@@ -322,9 +330,11 @@ class AttnDecoderRNN(nn.Module):
 
 		# Get the embedding of the current input word (last output word)
 		word_embedded = self.embedding(word_input).view(1, 1, -1)  # S=1 x B x N
+		# word_embedded = self.embedding(word_input)
 
 		# Combine embedded input word and last context, run through RNN
 		rnn_input = torch.cat((word_embedded, last_context.unsqueeze(0)), 2)
+		print (rnn_input.shape, last_hidden)
 		rnn_output, hidden = self.gru(rnn_input, last_hidden)
 
 		# Calculate attention from current RNN state and all encoder outputs; apply to encoder outputs
@@ -352,11 +362,15 @@ def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, 
 	target_length = target_variable.size()[0]
 
 	# Run words through encoder
-	encoder_hidden = encoder.init_hidden()
+	print ("init hidde", input_variable.shape[1])
+	encoder_hidden = encoder.init_hidden(input_variable.shape[1])
+	print (input_variable.shape)
+	print (encoder_hidden.shape)
+	print (input_variable)
 	encoder_outputs, encoder_hidden = encoder(input_variable, encoder_hidden)
 
 	# Prepare input and output variables
-	decoder_input = Variable(torch.LongTensor([[SOS_token]]))
+	decoder_input = Variable(torch.LongTensor([[DE.vocab.stoi['<SOS>']]]))
 	decoder_context = Variable(torch.zeros(1, decoder.hidden_size))
 	decoder_hidden = encoder_hidden  # Use last hidden state from encoder to start decoder
 	if USE_CUDA:
@@ -365,10 +379,12 @@ def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, 
 
 	# Choose whether to use teacher forcing
 	use_teacher_forcing = random.random() < teacher_forcing_ratio
+	print(decoder_input.shape, decoder_hidden.shape, decoder_context.shape)
 	if use_teacher_forcing:
 
 		# Teacher forcing: Use the ground-truth target as the next input
 		for di in range(target_length):
+
 			decoder_output, decoder_context, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_context,
 																						 decoder_hidden,
 																						 encoder_outputs)
@@ -391,7 +407,7 @@ def train(input_variable, target_variable, encoder, decoder, encoder_optimizer, 
 			if USE_CUDA: decoder_input = decoder_input.cuda()
 
 			# Stop at end of sentence (not necessary when using known targets)
-			if ni == EOS_token: break
+			if ni == EN.vocab.stoi['<EOS>']: break
 
 	# Backpropagation
 	loss.backward()
@@ -411,6 +427,7 @@ teacher_forcing_ratio = 0.5
 clip = 5.0
 attn_model = 'general'
 hidden_size = 500
+embedding_size = 300
 n_layers = 2
 dropout_p = 0.05
 learning_rate = 0.0001
@@ -418,21 +435,51 @@ learning_rate = 0.0001
 # Keep track of time elapsed and running averages
 start = time.time()
 plot_losses = []
-print_loss_total = 0  # Reset every print_every
-plot_loss_total = 0  # Reset every plot_every
-source = 'de'
-target = 'en'
-logging.basicConfig(format=FORMAT, level=logging.INFO, filename="{}-{}.log".format(source, target))
+logging.basicConfig(format=FORMAT, level=logging.INFO, filename="nmt.log")
+
+moses_en_tokenizer = MosesTokenizer(lang='en').tokenize
+moses_de_tokenizer = MosesTokenizer(lang='de').tokenize
+
+EN = data.Field(lower=True, tokenize=moses_en_tokenizer, init_token='<SOS>', eos_token='<EOS>')
+DE = data.Field(lower=True, tokenize=moses_de_tokenizer, init_token='<SOS>', eos_token='<EOS>')
 
 
-if __name__ == "__main__":
-	logging.info("Starting Program")
-	input_lang, output_lang, pairs = prepare_data(source,target , True)
-	logging.info(random.choice(pairs))
+device = -1
+if USE_CUDA:
+	device = 0
 
-	# Initialize models
-	encoder = EncoderRNN(input_lang.n_words, hidden_size, n_layers)
-	decoder = AttnDecoderRNN(attn_model, hidden_size, output_lang.n_words, n_layers, dropout_p=dropout_p)
+
+def main():
+	logging.info("Loading data")
+	# train_data, val_data, test_data = datasets.TranslationDataset.splits(
+	# 	root='./data', train='training.10k', validation='newstest2012.tok', test='newstest2013.tok',
+	# 	exts=('.de', '.en'), fields=(DE, EN)
+	# )
+	#
+	# EN.build_vocab(train_data.src, min_freq=10)
+	# DE.build_vocab(train_data.trg, max_size=50000)
+	#
+	# train_iter, val_iter = data.BucketIterator.splits(
+	# 	datasets=(train_data, val_data),
+	# 	batch_size=128,
+	# 	sort_key=lambda x: len(x.src),
+	# 	device=-1
+	# )
+
+	train_data, val_data, test_data = datasets.IWSLT.splits(exts=('.de', '.en'), fields=(DE, EN))
+	train_iter, val_iter = data.BucketIterator.splits(
+		(train_data, val_data), batch_size=32, device=0)
+
+	EN.build_vocab(train_data.src)
+	DE.build_vocab(train_data.trg)
+
+
+	logging.info("Source Vocab size %s" % len(EN.vocab))
+	logging.info("Target Vocab size %s" % len(DE.vocab))
+
+	logging.info("Setting up Encoder and Decoder")
+	encoder = EncoderRNN(len(EN.vocab), hidden_size, embedding_size, n_layers)
+	decoder = AttnDecoderRNN(attn_model, hidden_size, len(DE.vocab), n_layers, dropout_p=dropout_p)
 
 	# Move models to GPU
 	if USE_CUDA:
@@ -440,29 +487,30 @@ if __name__ == "__main__":
 		decoder.cuda()
 
 	# Initialize optimizers and criterion
+	logging.info("Initialize optimizers and criterion")
 	encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
 	decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
 	criterion = nn.NLLLoss()
 
 	for epoch in range(1, n_epochs + 1):
+		logging.info("Epoch :%s" % epoch)
+		print_loss_total = 0  # Reset every print_every
+		plot_loss_total = 0  # Reset every plot_every
+		for batch in iter(train_iter):
+			input_variable = batch.src
+			target_variable = batch.trg
 
-		# Get training data for this cycle
-		training_pair = variables_from_pair(random.choice(pairs))
-		input_variable = training_pair[0]
-		target_variable = training_pair[1]
+			# Run the train function
+			loss = train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
 
-		# Run the train function
-		loss = train(input_variable, target_variable, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
-
-		# Keep track of loss
-		print_loss_total += loss
-		plot_loss_total += loss
+			# Keep track of loss
+			print_loss_total += loss
+			plot_loss_total += loss
 
 		if epoch == 0: continue
 
 		if epoch % print_every == 0:
 			print_loss_avg = print_loss_total / print_every
-			print_loss_total = 0
 			print_summary = '%s (%d %d%%) %.4f' % (
 				time_since(start, epoch / n_epochs), epoch, epoch / n_epochs * 100, print_loss_avg)
 			logging.info(print_summary)
@@ -470,12 +518,10 @@ if __name__ == "__main__":
 		if epoch % plot_every == 0:
 			plot_loss_avg = plot_loss_total / plot_every
 			plot_losses.append(plot_loss_avg)
-			plot_loss_total = 0
 
 	show_plot(plot_losses)
-	evaluate_randomly()
 
-	evaluate_and_show_attention("elle a cinq ans de moins que moi .")
-	evaluate_and_show_attention("elle est trop petit .")
-	evaluate_and_show_attention("je ne crains pas de mourir .")
-	evaluate_and_show_attention("c est un jeune directeur plein de talent .")
+
+if __name__ == "__main__":
+	logging.info("Starting Program")
+	main()
