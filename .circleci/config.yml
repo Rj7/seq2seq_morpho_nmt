@@ -26,5 +26,5 @@ workflows:
       - tag_test:
           requires:
             - build
-          tags:
-            only: /v[0-9]+(\.[0-9]+)+/ # v1.2.3 only
+            tags:
+              only: /v[0-9]+(\.[0-9]+)+/ # v1.2.3 only
