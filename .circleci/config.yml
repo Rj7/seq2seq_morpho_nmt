@@ -23,7 +23,6 @@ workflows:
       - build
   build_n_branch_test:
     jobs:
-      - build
       - tag_test:
           requires:
             - build
