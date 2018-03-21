@@ -26,6 +26,11 @@ workflows:
   tagged-build:
     jobs:
       - build
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
       - tag_test:
           filters:
             branches:
