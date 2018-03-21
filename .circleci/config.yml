@@ -32,6 +32,8 @@ workflows:
             tags:
               only: /^v.*/
       - tag_test:
+          requires:
+            - build
           filters:
             branches:
               ignore: /.*/
