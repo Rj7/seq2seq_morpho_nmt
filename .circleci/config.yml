@@ -25,9 +25,7 @@ workflows:
               ignore: /^v.*/
   tagged-build:
     jobs:
-      - tag_test:
-          requires:
-            build
+      - build:
           filters:
             branches:
               ignore: /.*/
