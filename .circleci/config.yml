@@ -27,15 +27,11 @@ workflows:
     jobs:
       - build:
           filters:
-            branches:
-              ignore: /.*/
             tags:
               only: /^v.*/
       - tag_test:
           requires:
             - build
           filters:
-            branches:
-              ignore: /.*/
             tags:
               only: /^v.*/
