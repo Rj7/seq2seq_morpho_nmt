@@ -15,16 +15,21 @@ jobs:
       - run: echo "tag hello"
       - run: sleep 25
 
-
 workflows:
   version: 2
-  build:
+  un-tagged-build:
     jobs:
-      - build
-  build_n_branch_test:
+      - build:
+          filters:
+            tags:
+              ignore: /^v.*/
+  tagged-build:
     jobs:
       - tag_test:
           requires:
-            - build
+            build
+          filters:
+            branches:
+              ignore: /.*/
             tags:
-              only: /v[0-9]+(\.[0-9]+)+/ # v1.2.3 only
+              only: /^v.*/
